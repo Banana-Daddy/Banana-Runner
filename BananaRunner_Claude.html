@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banana Run: Joshua Tree Escape</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f5deb3;
+            overflow: hidden;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        #game-canvas {
+            display: block;
+            background-color: #87CEEB;
+        }
+        
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            text-align: center;
+            z-index: 10;
+        }
+        
+        .screen.hidden {
+            display: none;
+        }
+        
+        .title {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: yellow;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .subtitle {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            color: #ffcc00;
+        }
+        
+        .button {
+            padding: 1rem 2rem;
+            font-size: 1.5rem;
+            background-color: #ffcc00;
+            color: #333;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        
+        .button:hover {
+            transform: scale(1.1);
+        }
+        
+        #score-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 1.5rem;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            z-index: 5;
+        }
+        
+        #pun-bubble {
+            position: absolute;
+            padding: 10px 15px;
+            background-color: white;
+            border-radius: 20px;
+            font-size: 1rem;
+            max-width: 200px;
+            text-align: center;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
+            z-index: 5;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        #pun-bubble:after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 20px;
+            border-width: 10px 10px 0;
+            border-style: solid;
+            border-color: white transparent;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        <div id="score-display">Score: 0</div>
+        <div id="pun-bubble"></div>
+        
+        <div id="start-screen" class="screen">
+            <h1 class="title">Banana Run</h1>
+            <h2 class="subtitle">Joshua Tree Escape</h2>
+            <button id="start-button" class="button">Start Game</button>
+            <p style="margin-top: 20px; max-width: 80%;">
+                Tap/Click or press SPACE to jump. Avoid monkeys and crows!
+            </p>
+        </div>
+        
+        <div id="game-over-screen" class="screen hidden">
+            <h1 class="title">Game Over</h1>
+            <h2 id="final-score" class="subtitle">Score: 0</h2>
+            <button id="retry-button" class="button">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Game Setup
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startButton = document.getElementById('start-button');
+        const retryButton = document.getElementById('retry-button');
+        const scoreDisplay = document.getElementById('score-display');
+        const finalScore = document.getElementById('final-score');
+        const punBubble = document.getElementById('pun-bubble');
+        
+        // Resize canvas to fit window
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        // Game state
+        const gameState = {
+            running: false,
+            score: 0,
+            speed: 5,
+            gravity: 0.5,
+            lastPunScore: 0,
+            displayingPun: false
+        };
+        
+        // Banana character
+        const banana = {
+            x: canvas.width * 0.2,
+            y: 0,
+            width: 60,
+            height: 60,
+            velocityY: 0,
+            jumpPower: -12,
+            isJumping: false,
+            draw() {
+                // Draw banana emoji
+                ctx.font = `${this.height}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('🍌', this.x, this.y);
+            },
+            update() {
+                // Apply gravity
+                this.velocityY += gameState.gravity;
+                this.y += this.velocityY;
+                
+                // Check ground collision
+                const groundY = canvas.height * 0.75;
+                if (this.y + this.height/2 > groundY) {
+                    this.y = groundY - this.height/2;
+                    this.velocityY = 0;
+                    this.isJumping = false;
+                }
+                
+                // Update pun bubble position
+                if (gameState.displayingPun) {
+                    punBubble.style.left = `${this.x + this.width/2}px`;
+                    punBubble.style.top = `${this.y - this.height/2 - 60}px`;
+                }
+            },
+            jump() {
+                if (!this.isJumping) {
+                    this.velocityY = this.jumpPower;
+                    this.isJumping = true;
+                }
+            }
+        };
+        
+        // Enemy class
+        class Enemy {
+            constructor(type) {
+                this.type = type; // 'monkey' or 'crow'
+                this.width = 60;
+                this.height = 60;
+                this.x = canvas.width + this.width;
+                
+                if (type === 'monkey') {
+                    // Monkeys run on the ground
+                    this.y = canvas.height * 0.75 - this.height/2;
+                } else {
+                    // Crows fly at varying heights
+                    const minHeight = canvas.height * 0.4;
+                    const maxHeight = canvas.height * 0.65;
+                    this.y = Math.random() * (maxHeight - minHeight) + minHeight;
+                }
+            }
+            
+            update() {
+                this.x -= gameState.speed;
+            }
+            
+            draw() {
+                ctx.font = `${this.height}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                if (this.type === 'monkey') {
+                    // Draw monkey emoji
+                    ctx.fillText('🐒', this.x, this.y);
+                } else {
+                    // Draw crow/bird emoji
+                    ctx.fillText('🦅', this.x, this.y);
+                }
+            }
+            
+            isOffScreen() {
+                return this.x + this.width < 0;
+            }
+            
+            collidesWith(other) {
+                // Simple circle-based collision with reduced hitbox for better gameplay
+                const dx = this.x - other.x;
+                const dy = this.y - other.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDistance = (this.width + other.width) / 4;
+                
+                return distance < minDistance;
+            }
+        }
+        
+        // Background elements
+        const backgrounds = [
+            { // Far mountains
+                y: canvas.height * 0.6,
+                scroll: 0.2,
+                elements: []
+            },
+            { // Joshua trees
+                y: canvas.height * 0.65,
+                scroll: 0.5,
+                elements: []
+            },
+            { // Cacti
+                y: canvas.height * 0.7,
+                scroll: 0.8,
+                elements: []
+            }
+        ];
+        
+        // Generate initial background elements
+        function generateBackgrounds() {
+            // Clear existing elements
+            backgrounds.forEach(layer => {
+                layer.elements = [];
+            });
+            
+            // Far mountains (layer 0)
+            for (let i = 0; i < 5; i++) {
+                const width = Math.random() * 300 + 200;
+                const height = Math.random() * 150 + 100;
+                const x = Math.random() * canvas.width * 1.5;
+                
+                backgrounds[0].elements.push({
+                    x, width, height
+                });
+            }
+            
+            // Joshua trees (layer 1)
+            for (let i = 0; i < 10; i++) {
+                const height = Math.random() * 100 + 100;
+                const width = height * 0.5;
+                const x = Math.random() * canvas.width * 1.5;
+                
+                backgrounds[1].elements.push({
+                    x, width, height
+                });
+            }
+            
+            // Cacti (layer 2)
+            for (let i = 0; i < 15; i++) {
+                const height = Math.random() * 40 + 30;
+                const width = height * 0.3;
+                const x = Math.random() * canvas.width * 1.5;
+                
+                backgrounds[2].elements.push({
+                    x, width, height
+                });
+            }
+        }
+        
+        function drawBackground() {
+            // Sky gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.75);
+            gradient.addColorStop(0, '#87CEEB'); // Sky blue
+            gradient.addColorStop(1, '#FFC966'); // Light orange
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height * 0.75);
+            
+            // Sun emoji
+            ctx.font = '80px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('☀️', canvas.width * 0.8, canvas.height * 0.2);
+            
+            // Draw each background layer
+            backgrounds.forEach(layer => {
+                layer.elements.forEach(element => {
+                    if (element.x < -element.width) {
+                        // If element is off screen, move it to the right
+                        element.x = canvas.width + Math.random() * 300;
+                    }
+                    
+                    if (layer === backgrounds[0]) {
+                        // Draw mountains
+                        ctx.fillStyle = '#A9A9A9';
+                        ctx.beginPath();
+                        ctx.moveTo(element.x, layer.y);
+                        ctx.lineTo(element.x + element.width/2, layer.y - element.height);
+                        ctx.lineTo(element.x + element.width, layer.y);
+                        ctx.fill();
+                    } else if (layer === backgrounds[1]) {
+                        // Draw Joshua trees
+                        drawJoshuaTree(element.x, layer.y - element.height, element.width, element.height);
+                    } else {
+                        // Draw cacti
+                        drawCactus(element.x, layer.y - element.height, element.width, element.height);
+                    }
+                });
+                
+                // Scroll layer
+                if (gameState.running) {
+                    layer.elements.forEach(element => {
+                        element.x -= gameState.speed * layer.scroll;
+                    });
+                }
+            });
+            
+            // Ground
+            ctx.fillStyle = '#D2B48C'; // Desert sand color
+            ctx.fillRect(0, canvas.height * 0.75, canvas.width, canvas.height * 0.25);
+        }
+        
+        function drawJoshuaTree(x, y, width, height) {
+            // Draw tree emoji
+            ctx.font = `${height}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('🌵', x, y + height);
+        }
+        
+        function drawCactus(x, y, width, height) {
+            // Draw cactus emoji
+            ctx.font = `${height}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('🌵', x, y + height);
+        }
+        
+        // Game objects
+        let enemies = [];
+        
+        // Banana puns
+        const bananaPuns = [
+            "This game is bananas! B-A-N-A-N-A-S!",
+            "Let's split!",
+            "Keep peeling your eyes open!",
+            "Feeling a-peel-ing!",
+            "This is totally slip-proof... right?",
+            "Going bananas trying to dodge!",
+            "Monkey see, monkey DON'T!",
+            "Top banana!",
+            "Stay fresh!",
+            "I'm ripe for adventure!",
+            "This is bananas!",
+            "Bunch of troubles ahead!",
+            "Getting out of this jam!",
+            "No monkeying around!",
+            "Slipping past the competition!"
+        ];
+        
+        // Show a random pun
+        function showPun() {
+            if (!gameState.displayingPun) {
+                gameState.displayingPun = true;
+                const randomPun = bananaPuns[Math.floor(Math.random() * bananaPuns.length)];
+                punBubble.textContent = randomPun;
+                punBubble.style.opacity = 1;
+                
+                setTimeout(() => {
+                    punBubble.style.opacity = 0;
+                    setTimeout(() => {
+                        gameState.displayingPun = false;
+                    }, 300);
+                }, 3000);
+            }
+        }
+        
+        // Spawn enemies
+        function spawnEnemy() {
+            if (!gameState.running) return;
+            
+            // Determine enemy type (higher chance of monkey at start, more crows later)
+            const crowChance = Math.min(0.3 + gameState.score / 1000, 0.5);
+            const enemyType = Math.random() < crowChance ? 'crow' : 'monkey';
+            
+            enemies.push(new Enemy(enemyType));
+            
+            // Schedule next spawn
+            const minDelay = Math.max(500 - gameState.score, 200);
+            const maxDelay = Math.max(2000 - gameState.score * 2, 800);
+            const delay = Math.random() * (maxDelay - minDelay) + minDelay;
+            
+            setTimeout(spawnEnemy, delay);
+        }
+        
+        // Game loop
+        function gameLoop() {
+            if (!gameState.running) return;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background
+            drawBackground();
+            
+            // Update banana
+            banana.update();
+            banana.draw();
+            
+            // Update enemies
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                enemies[i].update();
+                enemies[i].draw();
+                
+                // Check collision
+                if (enemies[i].collidesWith(banana)) {
+                    gameOver();
+                    return;
+                }
+                
+                // Remove off-screen enemies
+                if (enemies[i].isOffScreen()) {
+                    enemies.splice(i, 1);
+                }
+            }
+            
+            // Update score
+            gameState.score++;
+            scoreDisplay.textContent = `Score: ${gameState.score}`;
+            
+            // Check for pun trigger
+            if (gameState.score % 700 === 0 && gameState.score !== 0 && gameState.score !== gameState.lastPunScore) {
+                gameState.lastPunScore = gameState.score;
+                showPun();
+            }
+            
+            // Increase speed gradually
+            if (gameState.score % 200 === 0) {
+                gameState.speed += 0.1;
+            }
+            
+            // Continue loop
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start game
+        function startGame() {
+            // Reset game state
+            gameState.running = true;
+            gameState.score = 0;
+            gameState.speed = 5;
+            gameState.lastPunScore = 0;
+            gameState.displayingPun = false;
+            
+            // Reset banana position
+            banana.y = canvas.height * 0.6;
+            banana.velocityY = 0;
+            banana.isJumping = false;
+            
+            // Clear enemies
+            enemies = [];
+            
+            // Hide screens
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            
+            // Update score display
+            scoreDisplay.textContent = `Score: ${gameState.score}`;
+            
+            // Start spawning enemies
+            setTimeout(spawnEnemy, 1000);
+            
+            // Start game loop
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Game over
+        function gameOver() {
+            gameState.running = false;
+            finalScore.textContent = `Score: ${gameState.score}`;
+            gameOverScreen.classList.remove('hidden');
+        }
+        
+        // Input handlers
+        function handleJump() {
+            if (gameState.running) {
+                banana.jump();
+            }
+        }
+        
+        // Desktop controls
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault(); // Prevent page scrolling
+                handleJump();
+            }
+        });
+        
+        // Mobile controls
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent scrolling
+            handleJump();
+        });
+        
+        canvas.addEventListener('mousedown', handleJump);
+        
+        // Button events
+        startButton.addEventListener('click', startGame);
+        retryButton.addEventListener('click', startGame);
+        
+        // Initialize game
+        generateBackgrounds();
+        banana.y = canvas.height * 0.6;
+        drawBackground();
+        banana.draw();
+    </script>
+</body>
+</html>
